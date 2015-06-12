@@ -12,28 +12,27 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
+import math
+import random
+import re
+import time
 
 from datetime import datetime, timedelta
 from itertools import izip, imap
-import math
-import re
-import random
-import time
+from os import environ
 
 from graphite.logger import log
 from graphite.render.attime import parseTimeOffset, parseATTime
-
 from graphite.events import models
+from graphite.util import epoch
 
-#XXX format_units() should go somewhere else
-from os import environ
+# XXX format_units() should go somewhere else
 if environ.get('READTHEDOCS'):
   format_units = lambda *args, **kwargs: (0,'')
 else:
   from graphite.render.glyph import format_units
   from graphite.render.datalib import TimeSeries
 
-from graphite.util import epoch
 
 NAN = float('NaN')
 INF = float('inf')
@@ -138,7 +137,6 @@ def normalize(seriesLists):
   if seriesLists:
     seriesList = reduce(lambda L1,L2: L1+L2,seriesLists)
     if seriesList:
-      seriesList = reduce(lambda L1,L2: L1+L2,seriesLists)
       step = reduce(lcm,[s.step for s in seriesList])
       for s in seriesList:
         s.consolidate( step / s.step )
@@ -220,7 +218,7 @@ def sumSeriesWithWildcards(requestContext, seriesList, *position): #XXX
 
   for series in seriesList:
     newname = '.'.join(map(lambda x: x[1], filter(lambda i: i[0] not in positions, enumerate(series.name.split('.')))))
-    if newname in newSeries.keys():
+    if newname in newSeries:
       newSeries[newname] = sumSeries(requestContext, (series, newSeries[newname]))[0]
     else:
       newSeries[newname] = series
@@ -283,7 +281,7 @@ def multiplySeriesWithWildcards(requestContext, seriesList, *position): #XXX
 
   for series in seriesList:
     newname = '.'.join(map(lambda x: x[1], filter(lambda i: i[0] not in positions, enumerate(series.name.split('.')))))
-    if newname in newSeries.keys():
+    if newname in newSeries:
       newSeries[newname] = multiplySeries(requestContext, (newSeries[newname], series))[0]
     else:
       newSeries[newname] = series
@@ -1403,7 +1401,7 @@ def legendValue(requestContext, seriesList, *valueTypes):
         value = valueFunc(series)
         formatted = None
         if value is not None:
-          formatted = "%.2f%s" % format_units(abs(value), system=system)
+          formatted = "%.2f%s" % format_units(value, system=system)
         series.name = "%-20s%-5s%-10s" % (series.name, valueType, formatted)
   return seriesList
 
@@ -1978,6 +1976,25 @@ def useSeriesAbove(requestContext, seriesList, value, search, replace):
 
   return newSeries
 
+def fallbackSeries(requestContext, seriesList, fallback):
+    """
+    Takes a wildcard seriesList, and a second fallback metric.
+    If the wildcard does not match any series, draws the fallback metric.
+
+    Example:
+
+    .. code-block:: none
+
+      &target=fallbackSeries(server*.requests_per_second, constantLine(0))
+
+    Draws a 0 line when server metric does not exist.
+
+    """
+    if len(seriesList) > 0:
+        return seriesList
+    else:
+        return fallback
+
 def mostDeviant(requestContext, seriesList, n):
   """
   Takes one metric or a wildcard seriesList followed by an integer N.
@@ -2397,7 +2414,7 @@ def timeStack(requestContext, seriesList, timeShiftUnit, timeShiftStart, timeShi
   create a seriesList which is composed the original metric series stacked with time shifts
   starting time shifts from the start multiplier through the end multiplier
 
-  Useful for looking at history, or feeding into seriesAverage or seriesStdDev
+  Useful for looking at history, or feeding into averageSeries or stddevSeries.
 
   Example:
 
@@ -2827,7 +2844,7 @@ def groupByNode(requestContext, seriesList, nodeNum, callback):
   keys = []
   for series in seriesList:
     key = series.name.split(".")[nodeNum]
-    if key not in metaSeries.keys():
+    if key not in metaSeries:
       metaSeries[key] = [series]
       keys.append(key)
     else:
@@ -3348,6 +3365,7 @@ SeriesFunctions = {
   'divideSeries' : divideSeries,
 
   # Series Filter functions
+  'fallbackSeries' : fallbackSeries,
   'mostDeviant' : mostDeviant,
   'highestCurrent' : highestCurrent,
   'lowestCurrent' : lowestCurrent,
@@ -3401,7 +3419,9 @@ SeriesFunctions = {
   'substr' : substr,
   'group' : group,
   'map': mapSeries,
+  'mapSeries': mapSeries,
   'reduce': reduceSeries,
+  'reduceSeries': reduceSeries,
   'groupByNode' : groupByNode,
   'constantLine' : constantLine,
   'stacked' : stacked,
